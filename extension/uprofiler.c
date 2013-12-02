@@ -1057,9 +1057,9 @@ static hp_function_t *hp_get_function(zend_op_array *op TSRMLS_DC) {
     hp_function_t *func;
 
     func = (hp_function_t *)emalloc(sizeof(hp_function_t));
-    
-    func->name = hp_get_function_name(op);
-    
+
+    func->name = hp_get_function_name(op TSRMLS_CC);
+
     if (op->line_start != 0) {
         func->file = op->filename;
         func->line = op->line_start;
