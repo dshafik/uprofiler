@@ -110,9 +110,11 @@
  * The following optional flags can be used to control other aspects of
  * profiling.
  */
-#define XHPROF_FLAGS_NO_BUILTINS   0x0001         /* do not profile builtins */
-#define XHPROF_FLAGS_CPU           0x0002      /* gather CPU times for funcs */
-#define XHPROF_FLAGS_MEMORY        0x0004   /* gather memory usage for funcs */
+
+#define UPROFILER_FLAGS_NO_BUILTINS    0x0001   /* do not profile builtins */
+#define UPROFILER_FLAGS_CPU            0x0002   /* gather CPU times for funcs */
+#define UPROFILER_FLAGS_MEMORY         0x0004   /* gather memory usage for funcs */
+#define UPROFILER_FLAGS_FUNCTION_INFO  0x0008   /* gather function file/line info */
 
 /* Constants for XHPROF_MODE_SAMPLED        */
 #define XHPROF_SAMPLING_INTERVAL       100000      /* In microsecs        */
@@ -589,16 +591,33 @@ PHP_MINFO_FUNCTION(uprofiler)
  */
 
 static void hp_register_constants(INIT_FUNC_ARGS) {
+  REGISTER_LONG_CONSTANT("UPROFILER_FLAGS_NO_BUILTINS",
+                         UPROFILER_FLAGS_NO_BUILTINS,
+                         CONST_CS | CONST_PERSISTENT);
+
+  REGISTER_LONG_CONSTANT("UPROFILER_FLAGS_CPU",
+                         UPROFILER_FLAGS_CPU,
+                         CONST_CS | CONST_PERSISTENT);
+
+  REGISTER_LONG_CONSTANT("UPROFILER_FLAGS_MEMORY",
+                         UPROFILER_FLAGS_MEMORY,
+                         CONST_CS | CONST_PERSISTENT);
+
+  REGISTER_LONG_CONSTANT("UPROFILER_FLAGS_FUNCTION_INFO",
+                         UPROFILER_FLAGS_FUNCTION_INFO,
+                         CONST_CS | CONST_PERSISTENT);
+  
+  /* Legacy xhprof compatibility */
   REGISTER_LONG_CONSTANT("XHPROF_FLAGS_NO_BUILTINS",
-                         XHPROF_FLAGS_NO_BUILTINS,
+                         UPROFILER_FLAGS_NO_BUILTINS,
                          CONST_CS | CONST_PERSISTENT);
 
   REGISTER_LONG_CONSTANT("XHPROF_FLAGS_CPU",
-                         XHPROF_FLAGS_CPU,
+                         UPROFILER_FLAGS_CPU,
                          CONST_CS | CONST_PERSISTENT);
 
   REGISTER_LONG_CONSTANT("XHPROF_FLAGS_MEMORY",
-                         XHPROF_FLAGS_MEMORY,
+                         UPROFILER_FLAGS_MEMORY,
                          CONST_CS | CONST_PERSISTENT);
 }
 
@@ -1596,12 +1615,12 @@ void hp_mode_hier_beginfn_cb(hp_entry_t **entries,
   current->tsc_start = cycle_timer();
 
   /* Get CPU usage */
-  if (hp_globals.uprofiler_flags & XHPROF_FLAGS_CPU) {
+  if (hp_globals.uprofiler_flags & UPROFILER_FLAGS_CPU) {
     getrusage(RUSAGE_SELF, &(current->ru_start_hprof));
   }
 
   /* Get memory usage */
-  if (hp_globals.uprofiler_flags & XHPROF_FLAGS_MEMORY) {
+  if (hp_globals.uprofiler_flags & UPROFILER_FLAGS_MEMORY) {
     current->mu_start_hprof  = zend_memory_usage(0 TSRMLS_CC);
     current->pmu_start_hprof = zend_memory_peak_usage(0 TSRMLS_CC);
   }
@@ -1647,14 +1666,17 @@ zval * hp_mode_shared_endfn_cb(hp_entry_t *top,
   
   
   if (top->line != 0) {
-      file = estrdup(top->filename);
-      add_assoc_bool(counts, "internal", 0);
-      add_assoc_string(counts, "filename", file, 1);
-      add_assoc_long(counts, "line", top->line);
-      
-      efree(file);
+      if (hp_globals.uprofiler_flags & UPROFILER_FLAGS_FUNCTION_INFO) {
+          file = estrdup(top->filename);
+          add_assoc_bool(counts, "internal", 0);
+          add_assoc_string(counts, "filename", file, 1);
+          add_assoc_long(counts, "line", top->line);
+          efree(file);
+      }
   } else {
-      add_assoc_bool(counts, "internal", 1);
+      if (hp_globals.uprofiler_flags & UPROFILER_FLAGS_FUNCTION_INFO) {
+        add_assoc_bool(counts, "internal", 1);
+      }
   }
   
   /* Bump stats in the counts hashtable */
@@ -1685,7 +1707,7 @@ void hp_mode_hier_endfn_cb(hp_entry_t **entries  TSRMLS_DC) {
     return;
   }
 
-  if (hp_globals.uprofiler_flags & XHPROF_FLAGS_CPU) {
+  if (hp_globals.uprofiler_flags & UPROFILER_FLAGS_CPU) {
     /* Get CPU usage */
     getrusage(RUSAGE_SELF, &ru_end);
 
@@ -1697,7 +1719,7 @@ void hp_mode_hier_endfn_cb(hp_entry_t **entries  TSRMLS_DC) {
               TSRMLS_CC);
   }
 
-  if (hp_globals.uprofiler_flags & XHPROF_FLAGS_MEMORY) {
+  if (hp_globals.uprofiler_flags & UPROFILER_FLAGS_MEMORY) {
     /* Get Memory usage */
     mu_end  = zend_memory_usage(0 TSRMLS_CC);
     pmu_end = zend_memory_peak_usage(0 TSRMLS_CC);
@@ -1941,7 +1963,7 @@ static void hp_begin(long level, long uprofiler_flags TSRMLS_DC) {
 
     /* Replace zend_execute_internal with our proxy */
     _zend_execute_internal = zend_execute_internal;
-    if (!(hp_globals.uprofiler_flags & XHPROF_FLAGS_NO_BUILTINS)) {
+    if (!(hp_globals.uprofiler_flags & UPROFILER_FLAGS_NO_BUILTINS)) {
       /* if NO_BUILTINS is not set (i.e. user wants to profile builtins),
        * then we intercept internal (builtin) function calls.
        */
