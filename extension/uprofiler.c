@@ -1857,7 +1857,7 @@ ZEND_DLEXPORT zend_op_array* hp_compile_file(zend_file_handle *file_handle,
 
   func->name = funcname;
   func->file = file_handle->filename;
-  func->line = 1; // First line of the file
+  func->line = 1; /* First line of the file */
 
   BEGIN_PROFILING(&hp_globals.entries, func, hp_profile_flag);
   ret = _zend_compile_file(file_handle, type TSRMLS_CC);
